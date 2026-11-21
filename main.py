@@ -45,6 +45,12 @@ PROMPT = """
   '가격 추정 어려움'이라고 작성해.
 - 실제 거래 시세를 조회하지 않았다면
   조회한 것처럼 설명하지 마.
+  - 가격을 추정할 근거가 충분하다면
+  단일 금액보다는 예상 가격 범위로 제시해.
+- 물품의 종류와 상태에 따라 가격 범위를 다르게 판단해.
+- 비슷한 가치를 가진 물품은 비슷한 가격이 나와도 괜찮아.
+- 가격 차이를 만들기 위해 임의로 금액을 변경하지 마.
+- 감정가의 근거가 부족하면 무리하게 숫자를 제시하지 마.
 
 4. 감정사 총평
 - 해당 감정가를 추정한 이유를 2~3문장으로 설명해.
@@ -142,6 +148,28 @@ def analyze(request: AnalyzeRequest, x_access_code: str | None = Header(default=
     except Exception as error:
         raise HTTPException(status_code=502, detail=f"Gemini 요청 실패: {error}")
 
-    parsed = json.loads(reply.output_text)
-    tokens = getattr(reply.usage, "total_tokens", 0)
-    return AnalyzeResponse(result=parsed, tokens=tokens)
+    try:
+        parsed = json.loads(reply.output_text)
+
+        if not isinstance(parsed, dict):
+            raise ValueError("JSON 객체가 아닙니다")
+
+        if not all(
+            isinstance(parsed.get(key), str)
+            for key in FIELDS
+        ):
+            raise ValueError("필수 감정 항목이 누락되었습니다")
+
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=502,
+            detail="Gemini 분석 결과를 처리하지 못했습니다"
+        )
+
+    usage = getattr(reply, "usage", None)
+    tokens = getattr(usage, "total_tokens", 0) or 0
+
+    return AnalyzeResponse(
+        result=parsed,
+        tokens=tokens
+    )
